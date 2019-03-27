@@ -1,0 +1,73 @@
+#!/bin/bash
+
+set -o errexit
+
+announce()
+{
+  echo
+  echo '============================================================'
+  echo "$@"
+  echo '============================================================'
+  echo
+}
+
+announce 'Creating minion configuration'
+mkdir -p /etc/salt/minion.d
+cat <<EOF > /etc/salt/minion.d/this-minion.conf
+master: localhost
+id: this-minion
+EOF
+
+announce 'Creating partial pillar'
+mkdir -p /srv/pillar
+cat <<EOF > /srv/pillar/top.sls
+base:
+  {{ grains['id'] }}:
+    - nodes/{{ grains['id'] }}
+EOF
+
+# NOTE: /srv/pillar/nodes/this-minion.sls does not exist!!
+
+announce 'Creating a trivial state'
+mkdir -p /srv/salt
+cat <<EOF > /srv/salt/trivial.sls
+trivial:
+  test.nop:
+    - name: trivial
+EOF
+
+announce 'Version information'
+salt --versions-report
+
+announce 'Starting daemons'
+salt-master --log-file=/tmp/master.log --log-file-level=debug --daemon
+salt-minion --log-file=/tmp/minion.log --log-file-level=debug --daemon
+
+announce 'Authenticating minion with master'
+while ! salt-key --list unaccepted | grep -q this-minion
+do
+  sleep 1
+done
+salt-key --yes --accept this-minion
+
+announce 'Waiting for pillar_render() to fail'
+while ! grep CRITICAL /tmp/master.log; do sleep 1 ; done
+
+announce 'Completing pillar'
+mkdir -p /srv/pillar/nodes
+cat <<EOF > /srv/pillar/nodes/this-minion.sls
+live-universe-and-everything: 42
+EOF
+
+announce 'First state.apply fails'
+! salt 'this-minion' state.apply trivial
+
+announce 'Calling saltutil.refresh_pillar'
+salt 'this-minion' saltutil.refresh_pillar
+
+announce 'Now, state.apply succeeds'
+salt 'this-minion' state.apply trivial
+
+announce "That's all folks!"
+
+sleep infinity
