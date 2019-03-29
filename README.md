@@ -1,13 +1,28 @@
-# Initial pillar render failure breaks state.apply until pillar_refresh
+# Pillar render error breaks state.apply
 
-## Reproducing the problem
+## The Problem
 
-You can simply run:
+A pillar render error that happens during the minion initialization
+prevents a call to state.apply from succeeding even after the cause
+for the error is resolved.
 
-    docker build -t salt . && docker run --rm -ti --name salt salt
+The cause for the failure is a missing file; this leads to an error:
 
-This will build a docker image which includes everything needed to reproduce
-the problem. We initially found that pillar_refresh made the failure go away
+    Pillar render error: Specified SLS 'nodes/this-minion' in environment 'base' is not available on the salt master
+
+Sometime after the minion is up and running, the file is generated
+and saved to disk. After that, a call to state.apply fails with the
+same error. Running state.apply results in a new pillar render that
+actually succeeds; and still, state.apply reports this error:
+
+        Data failed to compile:
+    ----------
+        Pillar failed to render with the following messages:
+    ----------
+        Specified SLS 'nodes/this-minion' in environment 'base' is not available on the salt master
+    ERROR: Minions returned with non-zero exit code
+
+We initially found that pillar_refresh made the failure go away
 and chalked it up to salt misbehaving or not living up to its promise that
 state.apply would fetch its own pillar. After much debugging we found that
 the pillar render triggered by state.apply, in fact, succeeds.
@@ -19,6 +34,60 @@ not clear the error. So, when `sls()` checks for pillar errors, it also fails.
 
 I was unable to figure out why this happens (how the error gets left behind),
 and how pillar_refresh clears it.
+
+## Version details
+```
+Salt Version:
+           Salt: 2019.2.0
+
+Dependency Versions:
+           cffi: Not Installed
+       cherrypy: Not Installed
+       dateutil: 2.4.2
+      docker-py: Not Installed
+          gitdb: 0.6.4
+      gitpython: 1.0.1
+          ioflo: Not Installed
+         Jinja2: 2.8
+        libgit2: Not Installed
+        libnacl: Not Installed
+       M2Crypto: Not Installed
+           Mako: Not Installed
+   msgpack-pure: Not Installed
+ msgpack-python: 0.4.6
+   mysql-python: Not Installed
+      pycparser: Not Installed
+       pycrypto: 2.6.1
+   pycryptodome: Not Installed
+         pygit2: Not Installed
+         Python: 3.5.2 (default, Nov 12 2018, 13:43:14)
+   python-gnupg: 0.3.8
+         PyYAML: 3.11
+          PyZMQ: 15.2.0
+           RAET: Not Installed
+          smmap: 0.9.0
+        timelib: Not Installed
+        Tornado: 4.2.1
+            ZMQ: 4.1.4
+
+System Versions:
+           dist: Ubuntu 16.04 xenial
+         locale: ANSI_X3.4-1968
+        machine: x86_64
+        release: 4.15.0-39-generic
+         system: Linux
+        version: Ubuntu 16.04 xenial
+```
+
+## Reproducing the problem
+
+Clone https://github.com/wasosa/pillar-render-error and then run:
+
+    docker build -t salt . && docker run --rm -ti --name salt salt
+
+This will build a docker image which includes everything needed to
+reproduce the problem and will run through all the steps to demo it.
+See https://github.com/wasosa/pillar-render-error/blob/master/bootstrap.
 
 ## Our usecase
 
